@@ -1,45 +1,97 @@
+def get_min_max(schema_lines):
+    current_year = datetime.datetime.now().year
+    max_allowed_year = current_year + 7
+    # For month-year, we assume a YYYYMM format. We use December (12) as the upper bound month.
+    max_allowed_month_year = int(str(max_allowed_year) + "12")
+    
+    # Adjusted minimum allowed values as requested
+    # If month-year partitions are present: min_allowed = 197101 (January 1971)
+    # Else: min_allowed = 1971 (year only)
+    min_allowed_year = 1971
+    min_allowed_month_year = 197101
 
-def format_rows_count_total(table_name, min_yr, max_yr, fill_sold_yr_present, fill_enter_mnth_present, rx_create_yr_present, rx_create_mnth_present):
-    # if is_fill_enter_mnth:
-    #     query = "select count(*) from {} where fill_enter_mnth>={} and fill_enter_mnth<={}".format(table_name, min_yr, max_yr)
-    # else:
-    #     query = "select count(*) from {} where fill_sold_yr>={} and fill_sold_yr<={}".format(table_name, min_yr, max_yr)
-    # return query
-    if fill_sold_yr_present:
-        if fill_enter_mnth_present:
-            query = "SELECT COUNT(*) FROM {} WHERE fill_enter_mnth>={} AND fill_enter_mnth<={}".format(table_name, min_yr, max_yr)
-        else:
-            query = "SELECT COUNT(*) FROM {} WHERE fill_sold_yr>={} AND fill_sold_yr<={}".format(table_name, min_yr, max_yr)
-    elif rx_create_yr_present:
-        if rx_create_mnth_present:
-            query = "SELECT COUNT(*) FROM {} WHERE rx_create_mnth>={} AND rx_create_mnth<={}".format(table_name, min_yr, max_yr)
-        else:
-            query = "SELECT COUNT(*) FROM {} WHERE rx_create_yr>={} AND rx_create_yr<={}".format(table_name, min_yr, max_yr)
-    return query
+    min_yr = float('inf')
+    max_yr = float('-inf')
 
+    fill_sold_yr_present = False
+    rx_create_yr_present = False
+    fill_enter_mnth_present = False
+    rx_create_mnth_present = False
 
-def format_insert_to_part2_table_query(table_name_part1, table_name_part2, min_yr, max_yr, fill_sold_yr_present, fill_enter_mnth_present, rx_create_yr_present, rx_create_mnth_present):
-    if fill_sold_yr_present:
-        if fill_enter_mnth_present:
-            query = "INSERT INTO {} PARTITION (fill_sold_yr, fill_enter_mnth) SELECT * FROM {} WHERE fill_enter_mnth>={} AND fill_enter_mnth<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-        else:
-            query = "INSERT INTO {} PARTITION (fill_sold_yr) SELECT * FROM {} WHERE fill_sold_yr>={} AND fill_sold_yr<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-    elif rx_create_yr_present:
-        if rx_create_mnth_present:
-            query = "INSERT INTO {} PARTITION (rx_create_yr, rx_create_mnth) SELECT * FROM {} WHERE rx_create_mnth>={} AND rx_create_mnth<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-        else:
-            query = "INSERT INTO {} PARTITION (rx_create_yr) SELECT * FROM {} WHERE rx_create_yr>={} AND rx_create_yr<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-    return query
+    for schema in schema_lines:
+        # Example partition line might look like:
+        # "fill_sold_yr:2020/fill_enter_mnth:202004"
+        partition = schema.replace(":", "").strip()
+        
+        # Identify which keys are present
+        if "fill_sold_yr" in partition:
+            fill_sold_yr_present = True
+            rx_create_yr_present = False
+        elif "rx_create_yr" in partition:
+            rx_create_yr_present = True
+            fill_sold_yr_present = False
 
-def delete_partition_query(table_name, min_yr, max_yr, fill_sold_yr_present, fill_enter_mnth_present, rx_create_yr_present, rx_create_mnth_present):
-    if fill_sold_yr_present:
-        if fill_enter_mnth_present:
-            query = "ALTER TABLE {} DROP IF EXISTS PARTITION (fill_enter_mnth>={} AND fill_enter_mnth<={})".format(table_name, min_yr, max_yr)
-        else:
-            query = "ALTER TABLE {} DROP IF EXISTS PARTITION (fill_sold_yr>={} AND fill_sold_yr<={})".format(table_name, min_yr, max_yr)
-    elif rx_create_yr_present:
-        if rx_create_mnth_present:
-            query = "ALTER TABLE {} DROP IF EXISTS PARTITION (rx_create_mnth>={} AND rx_create_mnth<={})".format(table_name, min_yr, max_yr)
-        else:
-            query = "ALTER TABLE {} DROP IF EXISTS PARTITION (rx_create_yr>={} AND rx_create_yr<={})".format(table_name, min_yr, max_yr)
-    return query
+        if "fill_enter_mnth" in partition:
+            fill_enter_mnth_present = True
+            rx_create_mnth_present = False
+        elif "rx_create_mnth" in partition:
+            rx_create_mnth_present = True
+            fill_enter_mnth_present = False
+
+        # Convert partition string to a dict of keys/values
+        # e.g. "fill_sold_yr=2020/fill_enter_mnth=202004" -> {"fill_sold_yr":"2020","fill_enter_mnth":"202004"}
+        partitions_dict = dict(item.split("=") for item in partition.split("/"))
+
+        # Extract values based on which keys are present
+        # Priority: If month-year fields are present, use them; otherwise, use year fields.
+        if fill_sold_yr_present:
+            fill_sold_yr = int(partitions_dict.get("fill_sold_yr", 0))
+            # If month-year key is present along with fill_sold_yr
+            if "fill_enter_mnth" in partitions_dict:
+                fill_enter_mnth = int(partitions_dict["fill_enter_mnth"])
+                if fill_enter_mnth <= max_allowed_month_year:
+                    min_yr = min(fill_enter_mnth, min_yr)
+                    max_yr = max(fill_enter_mnth, max_yr)
+            else:
+                # year only
+                if fill_sold_yr <= max_allowed_year:
+                    min_yr = min(fill_sold_yr, min_yr)
+                    max_yr = max(fill_sold_yr, max_yr)
+
+        elif rx_create_yr_present:
+            rx_create_yr = int(partitions_dict.get("rx_create_yr", 0))
+            if "rx_create_mnth" in partitions_dict:
+                rx_create_mnth = int(partitions_dict["rx_create_mnth"])
+                if rx_create_mnth <= max_allowed_month_year:
+                    min_yr = min(rx_create_mnth, min_yr)
+                    max_yr = max(rx_create_mnth, max_yr)
+            else:
+                # year only
+                if rx_create_yr <= max_allowed_year:
+                    min_yr = min(rx_create_yr, min_yr)
+                    max_yr = max(rx_create_yr, max_yr)
+
+    # Determine final clamping based on presence of month-year fields
+    month_year_present = fill_enter_mnth_present or rx_create_mnth_present
+
+    if min_yr == float('inf'):
+        # No valid partitions found, handle as needed:
+        # For now, we set them to the minimum allowed.
+        min_yr = min_allowed_month_year if month_year_present else min_allowed_year
+        max_yr = min_yr
+
+    # Clamp the min_yr
+    if month_year_present:
+        # If month-year present, min_yr should not be less than 197101
+        min_yr = max(min_yr, min_allowed_month_year)
+        # Max_yr should not exceed max_allowed_month_year (YYYY12)
+        max_yr = min(max_yr, max_allowed_month_year)
+    else:
+        # If only year present, min_yr should not be less than 1971
+        min_yr = max(min_yr, min_allowed_year)
+        # Max_yr should not exceed current_year + 7
+        max_yr = min(max_yr, max_allowed_year)
+
+    print("min_yr:", min_yr)
+    print("max_yr:", max_yr)
+    return min_yr, max_yr, fill_sold_yr_present, fill_enter_mnth_present, rx_create_yr_present, rx_create_mnth_present
