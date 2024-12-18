@@ -1,98 +1,44 @@
+import datetime
 
 def get_min_max_partitions(schema_lines):    
-    min_yr = 999999
-    max_yr = 0
+    # max_yr should be greater than 7 years from the current year
+    current_year = datetime.datetime.now().year
+    threshold_yrs = 8
+    min_yr = 9999999
+    max_yr = current_year - threshold_yrs
     is_fill_enter_mnth = False
-    fill_enter_mnth_list = []
+    null_partition = False
+    max_fill_enter_mnth = int(str(current_year - threshold_yrs) + "12")
+    print(max_fill_enter_mnth)
+    max_fill_sold_yr = current_year - threshold_yrs
     for schema in schema_lines:
         partition = schema.replace("|", "").strip()
 
         partitions_dict = dict(item.split("=") for item in partition.split("/"))
-        splited_list = partition.split("/")
-        splited_parts_yr = []
+
         # check if partition contains only fill_sold_yr or fill_sold_yr and fill_sold_month
         
-        fill_sold_yr = partitions_dict.get("fill_sold_yr") 
+        fill_sold_yr = int(partitions_dict.get("fill_sold_yr") )
 
         if partitions_dict.get("fill_enter_mnth"):
             is_fill_enter_mnth = True
-            fill_enter_mnth = partitions_dict.get("fill_enter_mnth")
+            fill_enter_mnth = int(partitions_dict.get("fill_enter_mnth"))
             #print("fill_enter_mnth_list: ", fill_enter_mnth_list)
-            fill_enter_mnth_list.append(fill_enter_mnth)
-            min_yr =  min(int(fill_enter_mnth), int(min_yr))
-            max_yr = max(int(fill_enter_mnth), max_yr)
+            if fill_enter_mnth > max_fill_enter_mnth:
+                continue
+            min_yr =  min(fill_enter_mnth, min_yr)
+            max_yr = max(fill_enter_mnth, max_yr)
 
 
         else:
+            
+            if fill_sold_yr == 1970:
+                null_partition = True
+            if fill_sold_yr > max_fill_sold_yr:
+                continue
+            min_yr =  min(fill_sold_yr, min_yr)
+            max_yr = max(fill_sold_yr, max_yr)
 
-            min_yr =  min(int(fill_sold_yr), int(min_yr))
-            max_yr = max(int(fill_sold_yr), max_yr)
-    # split the fill_enter_mnth_list to get the year and month and sort the list and take the first and last element
-    # to get the min and max year example ["201201", "201301", "201401", "201501", "201601", "201701", "201801", "201901", "202001", "202101", "202201", "202301", "202401", "202501", "202601", "202701", "202801", "202901", "203001", "203101", "203201", "203301", "203401", "203501", "203601", "203701", "203801", "203901"]
-    
-    # if is_fill_enter_mnth:
-    #     fill_enter_mnth_list = sorted(fill_enter_mnth_list)
-    #     min_yr = fill_enter_mnth_list[0]
-    #     max_yr = fill_enter_mnth_list[-1]
-    # else:
-    #     min_yr = min_yr
-    #     max_yr = max_yr
     print("min_yr: ", min_yr)
     print("max_yr: ", max_yr)
-    return min_yr, max_yr, is_fill_enter_mnth, partitions_dict
-
-def format_insert_to_part2_table_query(table_name_part1, table_name_part2, min_yr, max_yr, is_fill_enter_mnth):
-    if is_fill_enter_mnth:
-        query = "INSERT INTO {} PARTITION (fill_sold_yr, fill_enter_mnth) SELECT * FROM {} WHERE fill_enter_mnth>={} AND fill_enter_mnth<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-    else:
-        query = "INSERT INTO {} PARTITION (fill_sold_yr) SELECT * FROM {} WHERE fill_sold_yr>={} AND fill_sold_yr<={}".format(table_name_part2, table_name_part1, min_yr, max_yr)
-    # query = f"INSERT INTO part2_table PARTITION (fill_sold_yr={fill_sold_yr}, fill_enter_mnth={fill_enter_mnth}) SELECT * FROM part1_table WHERE fill_sold_yr={fill_sold_yr} AND fill_enter_mnth={fill_enter_mnth}"
-    # print("query: ", query)
-    return query
-
-def delete_partition_query(table_name, min_yr, max_yr, is_fill_enter_mnth):
-    if is_fill_enter_mnth:
-        query = "ALTER TABLE {} DROP IF EXISTS PARTITION (fill_enter_mnth>={} AND fill_enter_mnth<={})".format(table_name, min_yr, max_yr)
-    else:
-        query = "ALTER TABLE {} DROP IF EXISTS PARTITION (fill_sold_yr>={} AND fill_sold_yr<={})".format(table_name, min_yr, max_yr)
-    return query
-
-
-
-            schema_lines = get_partitions_names(source_database, table_name, beeline_str)
-            current_yr = datetime.datetime.now().year
-            partitions_to_archive = []
-
-            # Identify partitions to archive
-            min_yr, max_yr, is_fill_enter_mnth, partitions_dict = get_min_max_partitions(schema_lines)
-            table_name_part2 = table_name + "_part2"
-            joined_table_name_part1 = f"{source_database}.{table_name}"
-            joined_table_name_part2 = f"{source_database}.{table_name_part2}"            
-
-            # If we have partitions to archive, create part2 table and start archiving
-
-
-
-            logging.info(f"Creating part2 table: {table_name_part2}")
-            print(f"Creating part2 table: {table_name_part2}")
-
-            create_sql_result, part1_column_names = create_part2_table(
-                joined_table_name_part1, joined_table_name_part2, beeline_str
-            )
-
-            if not create_sql_result:
-                create_failed_cmts = "Failed to create part2 table: {}. Table {} remains as is.".format(joined_table_name_part2, joined_table_name_part1)
-                print(create_failed_cmts)
-                logging.info(create_failed_cmts)
-                continue
-
-            logging.info(f"Created part2 table: {joined_table_name_part2}")
-            print(f"Created part2 table: {joined_table_name_part2}")
-
-            total_part1_rows_to_archive = 0
-            total_part2_rows_copied = 0
-            failed_flag = False
-
-                # Insert partitions into part2
-            insert_query = format_insert_to_part2_table_query(table_name, table_name_part2, min_yr, max_yr, is_fill_enter_mnth)
-            delete_query = delete_partition_query(table_name, min_yr, max_yr, is_fill_enter_mnth)
+    return min_yr, max_yr, is_fill_enter_mnth, null_partition
