@@ -1,21 +1,39 @@
-def format_rows_count_generic_query(table_name, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
-    if is_secondary_partition_present:
-        return "SELECT count(*) FROM {} WHERE {} >= {} AND {} <= {}".format(table_name, secondary_partition_name, min_yr, secondary_partition_name, max_yr) 
-    else:
-        return "SELECT count(*) FROM {} WHERE {} >= {} AND {} <= {}".format(table_name, primary_partition_name, min_yr, primary_partition_name, max_yr)
-    
+def format_create_log_table_generic_query(source_database):
+    """
+    Returns a SQL command to create the archival_operation_log table if it does not exist.
 
+    Args:
+        source_database (str): The name of the database in which to create the table.
 
+    Returns:
+        str: The SQL command to create the archival_operation_log table.
+    """
+    create_table_sql_query = """CREATE TABLE IF NOT EXISTS {}.archival_operation_log ( batch_id STRING, table_name_part1 STRING ,table_name_part2 STRING,source_database STRING,status BOOLEAN,operation_datetime TIMESTAMP,part2_table_location STRING,is_inserted_to_part2 BOOLEAN,is_deleted_from_part1 BOOLEAN,min_yr STRING,max_yr STRING, primary_partition_name STRING, is_secondary_partition_present BOOLEAN, secondary_partition_name STRING, total_rows_before_insert STRING, total_rows_after_insert_to_part2 STRING);""".format(source_database)
+    return create_table_sql_query
 
-def format_insert_to_part2_generic(table_name_part1, table_name_part2, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
-    if is_secondary_partition_present:
-        return "INSERT INTO {} PARTITION ({}) SELECT * FROM {} WHERE {}>={} AND {}<={}".format(table_name_part2, secondary_partition_name, table_name_part1, secondary_partition_name, min_yr, secondary_partition_name, max_yr)
-    else:
-        return "INSERT INTO {} PARTITION ({}) SELECT * FROM {} WHERE {}>={} AND {}<={}".format(table_name_part2, primary_partition_name, table_name_part1, primary_partition_name, min_yr, primary_partition_name, max_yr)
-    
+def format_insert_log_table_generic_query(source_database, batch_id, table_name_part1, table_name_part2, status, part2_table_location, is_inserted_to_part2, is_deleted_from_part1, min_yr, max_yr, primary_partition_name, is_secondary_partition_present, secondary_partition_name, total_rows_before_insert, total_rows_after_insert_to_part2):
+    """
+    Returns a SQL command to insert a row into the archival_operation_log table.
 
-def delete_partition_generic(table_name, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
-    if is_secondary_partition_present:
-        return "ALTER TABLE {} DROP IF EXISTS PARTITION ({}>={} AND {}<={})".format(table_name, secondary_partition_name, min_yr, secondary_partition_name, max_yr)
-    else:
-        return "ALTER TABLE {} DROP IF EXISTS PARTITION ({}>={} AND {}<={})".format(table_name, primary_partition_name, min_yr, primary_partition_name, max_yr)
+    Args:
+        source_database (str): The name of the database in which to create the table.
+        batch_id (str): The batch ID for the operation.
+        table_name_part1 (str): The name of the source table.
+        table_name_part2 (str): The name of the target table.
+        status (bool): The status of the operation.
+        part2_table_location (str): The location of the target table.
+        is_inserted_to_part2 (bool): Indicates whether the data was inserted into the target table.
+        is_deleted_from_part1 (bool): Indicates whether the data was deleted from the source table.
+        min_yr (str): The minimum year for the operation.
+        max_yr (str): The maximum year for the operation.
+        primary_partition_name (str): The primary partition name.
+        is_secondary_partition_present (bool): Indicates whether a secondary partition is present.
+        secondary_partition_name (str): The secondary partition name.
+        total_rows_before_insert (str): The total number of rows before the insert operation.
+        total_rows_after_insert_to_part2 (str): The total number of rows after the insert operation.
+
+    Returns:
+        str: The SQL command to insert a row into the archival_operation_log table.
+    """
+    insert_log_table_sql_query = """INSERT INTO {}.archival_operation_log VALUES ('{}', '{}', '{}', '{}', {}, current_timestamp(), '{}', {}, {}, '{}', '{}', '{}', {}, '{}', '{}', '{}', '{}');""".format(source_database, batch_id, table_name_part1, table_name_part2, source_database, status, part2_table_location, is_inserted_to_part2, is_deleted_from_part1, min_yr, max_yr, primary_partition_name, is_secondary_partition_present, secondary_partition_name, total_rows_before_insert, total_rows_after_insert_to_part2)
+    return insert_log_table_sql_query
