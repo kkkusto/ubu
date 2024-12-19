@@ -1,73 +1,21 @@
-import datetime
-from collections import OrderedDict
-def get_min_max(schema_lines):
-    current_year = datetime.datetime.now().year
-    max_allowed_year = current_year - 8
-    max_allowed_month_year = int(str(max_allowed_year) + "12")
-    min_allowed_year = 1971
-    min_allowed_month_year = 197101
-
-    min_yr = float('inf')
-    max_yr = float('-inf')
-
-    primary_partition = None
-    secondary_partition = None
-    primary_flag = False
-    secondary_flag = False
-
-    for schema in schema_lines:
-        partition = schema.replace(":", "").strip()
-        partitions_dict = OrderedDict(item.split("=") for item in partition.split("/"))
-
-        # Determine primary and secondary partitions based on order
-        partition_keys = list(partitions_dict.keys())
-        if len(partition_keys) > 0:
-            primary_partition = partition_keys[0]
-            primary_flag = True
-        if len(partition_keys) > 1:
-            secondary_partition = partition_keys[1]
-            secondary_flag = True
-
-        # Extract values based on which keys are present
-        if primary_partition:
-            primary_value = int(partitions_dict.get(primary_partition, 0))
-            if secondary_partition:
-                secondary_value = int(partitions_dict.get(secondary_partition, 0))
-                if secondary_value <= max_allowed_month_year and secondary_value >= min_allowed_month_year:
-                    min_yr = min(secondary_value, min_yr)
-                    max_yr = max(secondary_value, max_yr)
-            else:
-                if primary_value <= max_allowed_year and primary_value >= min_allowed_year:
-                    min_yr = min(primary_value, min_yr)
-                    max_yr = max(primary_value, max_yr)
-
-    # Determine final clamping based on presence of month-year fields
-    month_year_present = secondary_flag
-
-    if min_yr == float('inf'):
-        # No valid partitions found, handle as needed:
-        # For now, we set them to the minimum allowed.
-        min_yr = min_allowed_month_year if month_year_present else min_allowed_year
-        max_yr = min_yr
-
-    # Clamp the min_yr
-    if month_year_present:
-        # If month-year present, min_yr should not be less than 197012
-        min_yr = max(min_yr, min_allowed_month_year)
-        # Max_yr should not exceed max_allowed_month_year
-        max_yr = min(max_yr, max_allowed_month_year)
+def format_rows_count_generic_query(table_name, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
+    if is_secondary_partition_present:
+        return "SELECT count(*) FROM {} WHERE {} >= {} AND {} <= {}".format(table_name, secondary_partition_name, min_yr, secondary_partition_name, max_yr) 
     else:
-        # If only year present, min_yr should not be less than 1970
-        min_yr = max(min_yr, min_allowed_year)
-        # Max_yr should not exceed max_allowed_year
-        max_yr = min(max_yr, max_allowed_year)
+        return "SELECT count(*) FROM {} WHERE {} >= {} AND {} <= {}".format(table_name, primary_partition_name, min_yr, primary_partition_name, max_yr)
+    
 
-    print("min_yr: ", min_yr)
-    print("max_yr: ", max_yr)
-    return {
-        "primary_partition_name": primary_partition,
-        "is_secondary_partition_present": secondary_flag,
-        "secondary_partition_name": secondary_partition,
-        "min_yr": min_yr,
-        "max_yr": max_yr
-    }
+
+
+def format_insert_to_part2_generic(table_name_part1, table_name_part2, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
+    if is_secondary_partition_present:
+        return "INSERT INTO {} PARTITION ({}) SELECT * FROM {} WHERE {}>={} AND {}<={}".format(table_name_part2, secondary_partition_name, table_name_part1, secondary_partition_name, min_yr, secondary_partition_name, max_yr)
+    else:
+        return "INSERT INTO {} PARTITION ({}) SELECT * FROM {} WHERE {}>={} AND {}<={}".format(table_name_part2, primary_partition_name, table_name_part1, primary_partition_name, min_yr, primary_partition_name, max_yr)
+    
+
+def delete_partition_generic(table_name, min_yr, max_yr, primary_partition_name, secondary_partition_name, is_secondary_partition_present):
+    if is_secondary_partition_present:
+        return "ALTER TABLE {} DROP IF EXISTS PARTITION ({}>={} AND {}<={})".format(table_name, secondary_partition_name, min_yr, secondary_partition_name, max_yr)
+    else:
+        return "ALTER TABLE {} DROP IF EXISTS PARTITION ({}>={} AND {}<={})".format(table_name, primary_partition_name, min_yr, primary_partition_name, max_yr)
